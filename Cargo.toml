@@ -3,7 +3,23 @@ name = "p2-message"
 version = "0.1.0"
 edition = "2024"
 
+[build]
+rustflag = ["-C", "target-cpu=native"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+debug = true
+panic = "abort"
+strip = "none"
+overflow-checks = false
+incremental = false
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+x509-parser = "0.16"
