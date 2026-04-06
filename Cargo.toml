@@ -3,6 +3,10 @@ name = "p2-message"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "gen_certs"
+path = "src/bin/gen_certs.rs"
+
 [build]
 rustflag = ["-C", "target-cpu=native"]
 
@@ -20,6 +24,7 @@ incremental = false
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
-tokio-rustls = "0.26"
-rustls-pemfile = "2"
-x509-parser = "0.16"
+tokio-rustls = { version = "0.26.4", features = ["aws-lc-rs"] }
+rustls-pemfile = "2.2.0"
+x509-parser = "0.18.1"
+rcgen = "0.14.7"
