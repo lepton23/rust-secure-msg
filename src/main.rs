@@ -1,5 +1,5 @@
+use p2_message::crypto::certs::*;
 use p2_message::processes::{client, server};
-use p2_message::tls::certs::*;
 use user_input::get_input;
 
 #[tokio::main]

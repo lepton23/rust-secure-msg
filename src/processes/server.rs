@@ -1,5 +1,5 @@
+use crate::crypto::config_builder::build_server_tls_config;
 use crate::protocol::message::Message;
-use crate::tls::config_builder::build_server_tls_config;
 
 use std::collections::HashMap;
 use std::io;

@@ -1,5 +1,5 @@
+use crate::crypto::config_builder::build_client_tls_config;
 use crate::protocol::message::Message;
-use crate::tls::config_builder::build_client_tls_config;
 
 use std::io;
 use std::sync::Arc;
@@ -97,6 +97,9 @@ impl Client {
     }
 
     // placeholder ui interactive loop
+    // could use ratatui? or crossterm? - make it real nice
+    //
+    // also need to implement forward secrecy with e2e encryption
     async fn interactive_loop<W>(&self, writer: &mut W) -> io::Result<()>
     where
         W: tokio::io::AsyncWrite + Unpin,
