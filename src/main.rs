@@ -17,19 +17,27 @@ async fn main() {
         }
         "c" => {
             let name = get_input("Enter your client name (e.g. Alice/Bob):");
-            
+
             // Only generate certs if CA doesn't exist
             if !std::path::Path::new("certs/ca.pem").exists() {
                 let _ = generate_certs("certs", "default");
             }
-            
+
             // Generate client if it doesn't exist
             let cert_path = format!("certs/client-{}.pem", name);
             if !std::path::Path::new(&cert_path).exists() {
                 let _ = generate_certs("certs", &name);
             }
             let key_path = format!("certs/client-{}-key.pem", name);
-            client::run("certs/ca.pem", &cert_path, &key_path, "localhost", "127.0.0.1:8080").await
+            client::run(
+                "certs/ca.pem",
+                &cert_path,
+                &key_path,
+                "localhost",
+                "127.0.0.1:8080",
+                &name,
+            )
+            .await
         }
         _ => {
             println!("Invalid choice");
