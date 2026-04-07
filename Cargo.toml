@@ -3,10 +3,6 @@ name = "p2-message"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "gen_certs"
-path = "src/bin/gen_certs.rs"
-
 [build]
 rustflag = ["-C", "target-cpu=native"]
 
@@ -18,7 +14,7 @@ debug = true
 panic = "abort"
 strip = "none"
 overflow-checks = false
-incremental = false
+incremental = true
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
