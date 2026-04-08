@@ -1,5 +1,5 @@
 use crate::crypto::config_builder::build_client_tls_config;
-use crate::protocol::message::Message;
+use crate::processes::app::run_tui;
 
 use std::io;
 use std::sync::Arc;
@@ -64,91 +64,9 @@ impl Client {
         let (reader, mut writer) = tokio::io::split(tls_stream);
         let mut reader = BufReader::new(reader);
 
-        // spawn task to read messages from server
-        let read_task = tokio::spawn(async move {
-            loop {
-                match Message::read_framed(&mut reader).await {
-                    Ok(msg) => handle_incoming(msg),
-                    Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                        println!("Server closed connection.");
-                        break;
-                    }
-                    Err(e) => {
-                        eprintln!("Read error: {}", e);
-                        break;
-                    }
-                }
-            }
-        });
-
-        self.interactive_loop(&mut writer).await?;
-
-        // graceful shutdown
-        let _ = Message::Deregsiter {
-            client_id: self.client_id.clone(),
-        }
-        .write_framed(&mut writer)
-        .await;
+        run_tui(&self.client_id, &mut reader, &mut writer).await?;
 
         writer.shutdown().await?;
-        read_task.abort();
-
         Ok(())
-    }
-
-    // placeholder ui interactive loop
-    // could use ratatui? or crossterm? - make it real nice
-    //
-    // also need to implement forward secrecy with e2e encryption
-    async fn interactive_loop<W>(&self, writer: &mut W) -> io::Result<()>
-    where
-        W: tokio::io::AsyncWrite + Unpin,
-    {
-        use tokio::io::AsyncBufReadExt;
-        let stdin = tokio::io::stdin();
-        let mut lines = tokio::io::BufReader::new(stdin).lines();
-
-        println!("Commands: list | send <to> <message> | quit");
-
-        while let Some(line) = lines.next_line().await? {
-            let trimmed = line.trim();
-            if trimmed == "quit" {
-                break;
-            } else if trimmed == "list" {
-                Message::List.write_framed(writer).await?;
-            } else if let Some(rest) = trimmed.strip_prefix("send ") {
-                if let Some((to, content)) = rest.split_once(' ') {
-                    Message::Send {
-                        to: to.to_string(),
-                        content: content.to_string(),
-                    }
-                    .write_framed(writer)
-                    .await?;
-                } else {
-                    eprintln!("Usage: send <recipient_id> <message>");
-                }
-            } else {
-                eprintln!("Unknown command: {}", trimmed);
-            }
-        }
-        Ok(())
-    }
-}
-
-// handle message from server
-fn handle_incoming(msg: Message) {
-    match msg {
-        Message::Receive { from, content } => {
-            println!("[{}]: {}", from, content);
-        }
-        Message::ClientsList(clients) => {
-            println!("Online clients: {}", clients.join(", "));
-        }
-        Message::Error(err) => {
-            eprintln!("Server error: {}", err);
-        }
-        other => {
-            eprintln!("Unexpected message from server: {:?}", other);
-        }
     }
 }

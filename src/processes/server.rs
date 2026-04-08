@@ -135,7 +135,7 @@ impl Server {
     async fn route(&self, msg: Message, from_id: &str) {
         match msg {
             // explicit deregister request from client
-            Message::Deregsiter { client_id } => {
+            Message::Deregister { client_id } => {
                 let mut map = self.clients.lock().unwrap();
                 map.remove(&client_id);
                 println!("'{}' explicitly deregistered", client_id);

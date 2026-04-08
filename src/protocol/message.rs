@@ -4,7 +4,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
-    Deregsiter { client_id: String },
+    Deregister { client_id: String },
     Send { to: String, content: String },
     Receive { from: String, content: String },
     List,
