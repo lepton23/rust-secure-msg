@@ -2,18 +2,18 @@ use std::io;
 use std::panic;
 
 use crossterm::{
-    event::{Event, KeyCode, KeyEvent, KeyModifiers, EventStream},
+    event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
-    Terminal,
 };
 use tokio::io::{AsyncWrite, BufReader};
 
@@ -37,15 +37,19 @@ impl Drop for TerminalGuard {
 }
 
 struct AppState {
-    messages: Vec<String>,   // chat log
-    input: String,           // current input buffer
+    messages: Vec<String>, // chat log
+    input: String,         // current input buffer
     should_quit: bool,
 }
 
 impl AppState {
     fn new() -> Self {
         Self {
-            messages: vec!["Commands: list | send <to> <message> | quit".into()],
+            messages: vec![
+                "Commands (list, send, quit)".into(),
+                "  :l | :s <to> <message> | :q".into(),
+                "".into(),
+            ],
             input: String::new(),
             should_quit: false,
         }
@@ -131,6 +135,9 @@ async fn handle_key<W: AsyncWrite + Unpin>(
     client_id: &str,
     writer: &mut W,
 ) -> io::Result<()> {
+    if !key.kind.is_press() {
+        return Ok(());
+    }
     match key.code {
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.should_quit = true;
@@ -145,7 +152,7 @@ async fn handle_key<W: AsyncWrite + Unpin>(
             let line = state.input.drain(..).collect::<String>();
             let trimmed = line.trim();
 
-            if trimmed == "quit" {
+            if trimmed == ":q" {
                 // send deregister before quitting
                 let _ = Message::Deregister {
                     client_id: client_id.to_string(),
@@ -153,9 +160,9 @@ async fn handle_key<W: AsyncWrite + Unpin>(
                 .write_framed(writer)
                 .await;
                 state.should_quit = true;
-            } else if trimmed == "list" {
+            } else if trimmed == ":l" {
                 Message::List.write_framed(writer).await?;
-            } else if let Some(rest) = trimmed.strip_prefix("send ") {
+            } else if let Some(rest) = trimmed.strip_prefix(":s ") {
                 if let Some((to, content)) = rest.split_once(' ') {
                     state.push_msg(format!("[you -> {to}]: {content}"));
                     Message::Send {
@@ -165,7 +172,7 @@ async fn handle_key<W: AsyncWrite + Unpin>(
                     .write_framed(writer)
                     .await?;
                 } else {
-                    state.push_msg("Usage: send <recipient> <message>".into());
+                    state.push_msg("Usage: :s <recipient> <message>".into());
                 }
             } else if !trimmed.is_empty() {
                 state.push_msg(format!("Unknown command: {trimmed}"));
@@ -198,8 +205,8 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(1),       // messages fill available space
-            Constraint::Length(3),     // input bar fixed height
+            Constraint::Min(1),    // messages fill available space
+            Constraint::Length(3), // input bar fixed height
         ])
         .split(f.area());
 
@@ -210,8 +217,8 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
         .map(|m| ListItem::new(Line::from(m.as_str())))
         .collect();
 
-    let messages_widget = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Messages"));
+    let messages_widget =
+        List::new(items).block(Block::default().borders(Borders::ALL).title("Messages"));
 
     f.render_widget(messages_widget, chunks[0]);
 
@@ -226,8 +233,8 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
 
     // place cursor at end of input text
     f.set_cursor_position((
-        chunks[1].x + 3 + state.input.len() as u16,  // +2 for "> "
-        chunks[1].y + 1,                               // +1 for border
+        chunks[1].x + 3 + state.input.len() as u16, // +2 for "> "
+        chunks[1].y + 1,                            // +1 for border
     ));
 }
 
