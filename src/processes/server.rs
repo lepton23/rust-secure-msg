@@ -25,8 +25,14 @@ pub async fn run(
     Ok(())
 }
 
+struct ClientEntry {
+    sender: mpsc::Sender<Message>,
+    x25519_key: Option<[u8; 32]>,
+    mlkem_ek: Option<Vec<u8>>,
+}
+
 pub struct Server {
-    clients: Arc<Mutex<HashMap<String, mpsc::Sender<Message>>>>,
+    clients: Arc<Mutex<HashMap<String, ClientEntry>>>,
     tls_acceptor: TlsAcceptor,
 }
 
@@ -89,7 +95,7 @@ impl Server {
                 eprintln!("Duplicate client_id '{}', rejecting", client_id);
                 return;
             }
-            map.insert(client_id.clone(), tx);
+            map.insert(client_id.clone(), ClientEntry { sender: tx, x25519_key: None, mlkem_ek: None });
             println!("Registered '{}'. Online: {}", client_id, map.len());
         }
 
@@ -145,7 +151,7 @@ impl Server {
             Message::Send { to, content } => {
                 let sender_opt = {
                     let map = self.clients.lock().unwrap();
-                    map.get(&to).cloned()
+                    map.get(&to).map(|e| e.sender.clone())
                 };
 
                 match sender_opt {
@@ -194,6 +200,47 @@ impl Server {
             Message::Error(_) => {
                 eprintln!("'{}' sent an Error message (ignored)", from_id);
             }
+
+            // store both halves of the client's hybrid E2E public key
+            Message::AnnounceKey { x25519_key, mlkem_ek } => {
+                let mut map = self.clients.lock().unwrap();
+                if let Some(entry) = map.get_mut(from_id) {
+                    entry.x25519_key = Some(x25519_key);
+                    entry.mlkem_ek = Some(mlkem_ek);
+                    println!("Stored hybrid E2E public key for '{}'", from_id);
+                }
+            }
+
+            // look up a peer's hybrid public key and return it to the requester
+            Message::RequestKey { client_id } => {
+                let key_opt = {
+                    let map = self.clients.lock().unwrap();
+                    map.get(&client_id).and_then(|e| {
+                        Some((e.x25519_key?, e.mlkem_ek.clone()?))
+                    })
+                };
+                match key_opt {
+                    Some((x25519_key, mlkem_ek)) => {
+                        self.send_to(
+                            from_id,
+                            Message::KeyResponse { client_id, x25519_key, mlkem_ek },
+                        )
+                        .await;
+                    }
+                    None => {
+                        self.send_error(
+                            from_id,
+                            format!("No E2E key available for '{}'", client_id),
+                        )
+                        .await;
+                    }
+                }
+            }
+
+            // clients don't send KeyResponse - protocol violation
+            Message::KeyResponse { .. } => {
+                eprintln!("Protocol violation: '{}' sent a KeyResponse message", from_id);
+            }
         }
     }
 
@@ -201,7 +248,7 @@ impl Server {
     async fn send_to(&self, client_id: &str, msg: Message) {
         let tx_opt = {
             let map = self.clients.lock().unwrap();
-            map.get(client_id).cloned()
+            map.get(client_id).map(|e| e.sender.clone())
         };
         if let Some(tx) = tx_opt {
             let _ = tx.send(msg).await;
@@ -219,6 +266,16 @@ impl Clone for Server {
         Server {
             clients: Arc::clone(&self.clients),
             tls_acceptor: self.tls_acceptor.clone(),
+        }
+    }
+}
+
+impl Clone for ClientEntry {
+    fn clone(&self) -> Self {
+        ClientEntry {
+            sender: self.sender.clone(),
+            x25519_key: self.x25519_key,
+            mlkem_ek: self.mlkem_ek.clone(),
         }
     }
 }

@@ -21,10 +21,10 @@ pub fn generate_certs(output_dir: &str, name: &str) -> Result<(), Box<dyn std::e
         let mut ca_params = CertificateParams::default();
         ca_params
             .distinguished_name
-            .push(DnType::CommonName, "Test CA");
+            .push(DnType::CommonName, "Author of Certs");
         ca_params
             .distinguished_name
-            .push(DnType::OrganizationName, "SecureMsg Dev");
+            .push(DnType::OrganizationName, "220007952");
         ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         ca_params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
         
@@ -34,10 +34,10 @@ pub fn generate_certs(output_dir: &str, name: &str) -> Result<(), Box<dyn std::e
         let mut ca_params = CertificateParams::default();
         ca_params
             .distinguished_name
-            .push(DnType::CommonName, "Test CA");
+            .push(DnType::CommonName, "Author of Certs");
         ca_params
             .distinguished_name
-            .push(DnType::OrganizationName, "SecureMsg Dev");
+            .push(DnType::OrganizationName, "220007952");
         ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         ca_params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
 
@@ -53,7 +53,7 @@ pub fn generate_certs(output_dir: &str, name: &str) -> Result<(), Box<dyn std::e
     let mut server_params = CertificateParams::default();
     server_params
         .distinguished_name
-        .push(DnType::CommonName, "localhost");
+        .push(DnType::CommonName, "220007952-server");
     server_params.subject_alt_names = vec![
         SanType::DnsName("localhost".try_into()?),
         SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),

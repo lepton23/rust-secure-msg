@@ -5,11 +5,29 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
     Deregister { client_id: String },
-    Send { to: String, content: String },
-    Receive { from: String, content: String },
+    // Encrypted content: `nonce (12 bytes) || ciphertext`
+    Send { to: String, content: Vec<u8> },
+    // Encrypted content: `nonce (12 bytes) || ciphertext`
+    Receive { from: String, content: Vec<u8> },
     List,
     ClientsList(Vec<String>),
     Error(String),
+    /// Sent by a client immediately after connecting to register both halves of
+    /// its hybrid E2E public key.
+    AnnounceKey {
+        x25519_key: [u8; 32],
+        /// ML-KEM-768 encapsulation key (1184 bytes).
+        mlkem_ek: Vec<u8>,
+    },
+    /// Ask the server for another client's hybrid E2E public key.
+    RequestKey { client_id: String },
+    /// Server reply carrying the requested client's hybrid E2E public key.
+    KeyResponse {
+        client_id: String,
+        x25519_key: [u8; 32],
+        /// ML-KEM-768 encapsulation key (1184 bytes).
+        mlkem_ek: Vec<u8>,
+    },
 }
 
 impl Message {

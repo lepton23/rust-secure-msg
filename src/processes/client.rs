@@ -1,5 +1,7 @@
 use crate::crypto::config_builder::build_client_tls_config;
+use crate::crypto::e2e::E2EKeys;
 use crate::processes::app::run_tui;
+use crate::protocol::message::Message;
 
 use std::io;
 use std::sync::Arc;
@@ -64,7 +66,16 @@ impl Client {
         let (reader, mut writer) = tokio::io::split(tls_stream);
         let mut reader = BufReader::new(reader);
 
-        run_tui(&self.client_id, &mut reader, &mut writer).await?;
+        // Generate hybrid E2E keypair and register both public keys with the server.
+        let e2e = E2EKeys::generate();
+        Message::AnnounceKey {
+            x25519_key: e2e.x25519_public.to_bytes(),
+            mlkem_ek: e2e.mlkem_ek_bytes.clone(),
+        }
+        .write_framed(&mut writer)
+        .await?;
+
+        run_tui(&self.client_id, &mut reader, &mut writer, e2e).await?;
 
         writer.shutdown().await?;
         Ok(())
