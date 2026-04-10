@@ -154,6 +154,12 @@ impl Server {
                     map.get(&to).map(|e| e.sender.clone())
                 };
 
+                print!("'{}' sending encrypted message: ", from_id.to_string());
+                for b in &content {
+                    print!("{b:02x}");
+                }
+                println!();
+
                 match sender_opt {
                     Some(tx) => {
                         let delivery = Message::Receive {
