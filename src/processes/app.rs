@@ -58,6 +58,8 @@ struct AppState {
     pending_inbound: HashMap<String, Vec<Vec<u8>>>,
     online_clients: Vec<String>,
     error_popup: Option<String>,
+    inbound_seq: HashMap<String, u64>,
+    outbound_seq: HashMap<String, u64>,
 }
 
 impl AppState {
@@ -74,6 +76,8 @@ impl AppState {
             pending_inbound: HashMap::new(),
             online_clients: Vec::new(),
             error_popup: None,
+            inbound_seq: HashMap::new(),
+            outbound_seq: HashMap::new(),
         }
     }
 
@@ -197,7 +201,11 @@ async fn handle_key<W: AsyncWrite + Unpin>(
                     let key_data = state.peer_keys.get(to).map(|(k, e)| (*k, e.clone()));
                     if let Some((x25519_key, mlkem_ek)) = key_data {
                         // Both keys cached — encrypt with hybrid scheme and send.
-                        let ct = state.e2e.encrypt(&x25519_key, &mlkem_ek, content);
+                        // add seq to aead plaintext to defend against replay attacks
+                        let seq = state.outbound_seq.entry(to.to_string()).or_insert(0);
+                        *seq += 1;
+                        let plaintext_with_seq = format!("{:016x}:{content}", seq);
+                        let ct = state.e2e.encrypt(&x25519_key, &mlkem_ek, &plaintext_with_seq);
                         state.push_sent(to.to_string(), content.to_string());
                         Message::Send {
                             to: to.to_string(),
@@ -242,7 +250,20 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
             let x25519_key = state.peer_keys.get(&from).map(|(k, _)| *k);
             if let Some(x25519_key) = x25519_key {
                 match state.e2e.decrypt(&x25519_key, &content) {
-                    Some(plain) => state.push_received(from, plain),
+                    Some(plain) => {
+                        // replay attack protection
+                        if let Some((seq_str, msg)) = plain.split_once(":") {
+                            if let Ok(seq) = u64::from_str_radix(seq_str, 16) {
+                                let last = state.inbound_seq.entry(from.clone()).or_insert(0);
+                                if seq <= *last {
+                                    state.push_error(format!("[{from}]: replayed message rejected"));
+                                    return Ok(());
+                                }
+                                *last = seq;
+                                state.push_received(from, msg.to_string());
+                            }
+                        }
+                    }
                     None => state.push_error(format!("[{from}]: decryption failed")),
                 }
             } else {
@@ -264,7 +285,10 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
             // encrypt with hybrid scheme.
             if let Some(msgs) = state.pending_outbound.remove(&client_id) {
                 for plaintext in msgs {
-                    let ct = state.e2e.encrypt(&x25519_key, &mlkem_ek, &plaintext);
+                    let seq = state.outbound_seq.entry(client_id.to_string()).or_insert(0);
+                    *seq += 1;
+                    let plaintext_with_seq = format!("{:016x}:{plaintext}", seq);
+                    let ct = state.e2e.encrypt(&x25519_key, &mlkem_ek, &plaintext_with_seq);
                     state.push_sent(client_id.clone(), plaintext);
                     Message::Send {
                         to: client_id.clone(),
@@ -279,7 +303,20 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
             if let Some(cts) = state.pending_inbound.remove(&client_id) {
                 for ct in cts {
                     match state.e2e.decrypt(&x25519_key, &ct) {
-                        Some(plain) => state.push_received(client_id.clone(), plain),
+                        Some(plain) => {
+                            // replay attack protection
+                            if let Some((seq_str, msg)) = plain.split_once(":") {
+                                if let Ok(seq) = u64::from_str_radix(seq_str, 16) {
+                                    let last = state.inbound_seq.entry(client_id.clone()).or_insert(0);
+                                    if seq <= *last {
+                                        state.push_error(format!("[{client_id}]: replayed message rejected"));
+                                        return Ok(());
+                                    }
+                                    *last = seq;
+                                    state.push_received(client_id.clone(), msg.to_string());
+                                }
+                            }
+                        }
                         None => state.push_error(format!("[{client_id}]: decryption failed")),
                     }
                 }
