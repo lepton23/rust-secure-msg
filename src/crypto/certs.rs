@@ -5,7 +5,7 @@ use rcgen::{
 use std::fs;
 use std::path::Path;
 
-pub fn generate_certs(output_dir: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn generate_certs(output_dir: &str, name: &str, extra_sans: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(output_dir)?;
 
     let ca_cert_path = Path::new(output_dir).join("ca.pem");
@@ -54,10 +54,18 @@ pub fn generate_certs(output_dir: &str, name: &str) -> Result<(), Box<dyn std::e
     server_params
         .distinguished_name
         .push(DnType::CommonName, "220007952-server");
-    server_params.subject_alt_names = vec![
+    let mut sans: Vec<SanType> = vec![
         SanType::DnsName("localhost".try_into()?),
         SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
     ];
+    for san in extra_sans {
+        if let Ok(ip) = san.parse::<std::net::IpAddr>() {
+            sans.push(SanType::IpAddress(ip));
+        } else {
+            sans.push(SanType::DnsName(san.as_str().try_into()?));
+        }
+    }
+    server_params.subject_alt_names = sans;
     server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     server_params.key_usages = vec![
         KeyUsagePurpose::DigitalSignature,

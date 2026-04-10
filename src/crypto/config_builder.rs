@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::rustls::ClientConfig;
-use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_rustls::rustls::pki_types::{CertificateDer};
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 
 // Build server TLS config
@@ -43,9 +43,9 @@ pub fn build_server_tls_config(
         // ensures we inherit all default cipher suites and only override key encapsulation preference order
         .with_safe_default_protocol_versions()?
         .with_client_cert_verifier(client_verifier)
-        .with_single_cert(server_certs, PrivateKeyDer::from(server_key))?;
+        .with_single_cert(server_certs, server_key);
 
-    Ok(config)
+    Ok(config?)
 }
 
 // build client config
@@ -77,7 +77,7 @@ pub fn build_client_tls_config(
     let config = ClientConfig::builder_with_provider(Arc::new(crypto_provider))
         .with_safe_default_protocol_versions()?
         .with_root_certificates(root_store)
-        .with_client_auth_cert(client_certs, client_key.into())?;
+        .with_client_auth_cert(client_certs, client_key)?;
 
     Ok(config)
 }

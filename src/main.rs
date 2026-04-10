@@ -9,32 +9,37 @@ async fn main() {
 
     let result = match choice.as_str() {
         "s" => {
-            // Only generate certs if CA doesn't exist
-            if !std::path::Path::new("certs/ca.pem").exists() {
-                let _ = generate_certs("certs", "default");
-            }
-            server::run("certs/ca.pem", "certs/server.pem", "certs/server-key.pem").await
+            let machine_name = machine_hostname();
+            println!("Using machine name '{}' as server cert SAN", machine_name);
+            let _ = generate_certs("certs", "default", &[machine_name]);
+            let port_str = get_input("Enter port to listen on (e.g. 8080):");
+            let port: u16 = port_str.parse().unwrap_or(8080);
+            server::run("certs/ca.pem", "certs/server.pem", "certs/server-key.pem", port).await
         }
         "c" => {
             let name = get_input("Enter your client name (e.g. Alice/Bob):");
 
             // Only generate certs if CA doesn't exist
             if !std::path::Path::new("certs/ca.pem").exists() {
-                let _ = generate_certs("certs", "default");
+                let _ = generate_certs("certs", "default", &[]);
             }
 
             // Generate client if it doesn't exist
             let cert_path = format!("certs/client-{}.pem", name);
             if !std::path::Path::new(&cert_path).exists() {
-                let _ = generate_certs("certs", &name);
+                let _ = generate_certs("certs", &name, &[]);
             }
             let key_path = format!("certs/client-{}-key.pem", name);
+            let server_hostname = get_input("Enter server hostname (e.g. myserver.local):");
+            let port_str = get_input("Enter server port (e.g. 8080):");
+            let port: u16 = port_str.parse().unwrap_or(8080);
+            let server_addr = format!("{}:{}", server_hostname, port);
             client::run(
                 "certs/ca.pem",
                 &cert_path,
                 &key_path,
-                "localhost",
-                "127.0.0.1:8080",
+                &server_hostname,
+                &server_addr,
                 &name,
             )
             .await
@@ -49,6 +54,16 @@ async fn main() {
         eprintln!("Fatal error: {}", e);
         std::process::exit(1);
     }
+}
+
+fn machine_hostname() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "localhost".to_string())
 }
 
 mod user_input {

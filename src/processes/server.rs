@@ -19,9 +19,10 @@ pub async fn run(
     ca_path: &str,
     cert_path: &str,
     key_path: &str,
+    port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = Server::new(ca_path, cert_path, key_path)?;
-    server.start("127.0.0.1:8080").await?;
+    server.start(&format!("0.0.0.0:{}", port)).await?;
     Ok(())
 }
 
