@@ -82,7 +82,7 @@ pub fn generate_certs(output_dir: &str, name: &str, extra_sans: &[String]) -> Re
         generate_client_cert(output_dir, name, &ca_params, &ca_key)?;
     }
 
-    println!("Certificates written to {}/", output_dir);
+    println!("Certificates written to {output_dir}/");
     Ok(())
 }
 
@@ -101,13 +101,13 @@ pub fn generate_client_cert(
     params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
 
     let client_key = KeyPair::generate()?;
-    let client_cert = params.signed_by(&client_key, &Issuer::from_params(&ca_params, &ca_key))?;
+    let client_cert = params.signed_by(&client_key, &Issuer::from_params(ca_params, &ca_key))?;
 
-    let prefix = format!("client-{}", client_name);
-    write_pem(output_dir, &format!("{}.pem", prefix), &client_cert.pem())?;
+    let prefix = format!("client-{client_name}");
+    write_pem(output_dir, &format!("{prefix}.pem"), &client_cert.pem())?;
     write_pem(
         output_dir,
-        &format!("{}-key.pem", prefix),
+        &format!("{prefix}-key.pem"),
         &client_key.serialize_pem(),
     )?;
 

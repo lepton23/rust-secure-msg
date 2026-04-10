@@ -43,7 +43,7 @@ impl Client {
         // server_name must match the CN or SAN in the server cert
         let server_name = ServerName::try_from(server_hostname.to_string())?;
 
-        Ok(Client {
+        Ok(Self {
             connector: TlsConnector::from(Arc::new(config)),
             server_name,
             client_id: client_id.to_string(),

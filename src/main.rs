@@ -10,7 +10,7 @@ async fn main() {
     let result = match choice.as_str() {
         "s" => {
             let machine_name = machine_hostname();
-            println!("Using machine name '{}' as server cert SAN", machine_name);
+            println!("Using machine name '{machine_name}' as server cert SAN");
             let _ = generate_certs("certs", "default", &[machine_name]);
             let port_str = get_input("Enter port to listen on (e.g. 8080):");
             let port: u16 = port_str.parse().unwrap_or(8080);
@@ -25,15 +25,15 @@ async fn main() {
             }
 
             // Generate client if it doesn't exist
-            let cert_path = format!("certs/client-{}.pem", name);
+            let cert_path = format!("certs/client-{name}.pem");
             if !std::path::Path::new(&cert_path).exists() {
                 let _ = generate_certs("certs", &name, &[]);
             }
-            let key_path = format!("certs/client-{}-key.pem", name);
+            let key_path = format!("certs/client-{name}-key.pem");
             let server_hostname = get_input("Enter server hostname (e.g. myserver.local):");
             let port_str = get_input("Enter server port (e.g. 8080):");
             let port: u16 = port_str.parse().unwrap_or(8080);
-            let server_addr = format!("{}:{}", server_hostname, port);
+            let server_addr = format!("{server_hostname}:{port}");
             client::run(
                 "certs/ca.pem",
                 &cert_path,
@@ -51,7 +51,7 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("Fatal error: {}", e);
+        eprintln!("Fatal error: {e}");
         std::process::exit(1);
     }
 }
@@ -70,7 +70,7 @@ mod user_input {
     use std::io;
 
     pub fn get_input(prompt: &str) -> String {
-        println!("{}", prompt);
+        println!("{prompt}");
         let mut input = String::new();
         io::stdin()
             .read_line(&mut input)

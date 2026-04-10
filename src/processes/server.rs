@@ -22,7 +22,7 @@ pub async fn run(
     port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = Server::new(ca_path, cert_path, key_path)?;
-    server.start(&format!("0.0.0.0:{}", port)).await?;
+    server.start(&format!("0.0.0.0:{port}")).await?;
     Ok(())
 }
 
@@ -44,7 +44,7 @@ impl Server {
         key_path: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let tls_config = build_server_tls_config(ca_path, cert_path, key_path)?;
-        Ok(Server {
+        Ok(Self {
             clients: Arc::new(Mutex::new(HashMap::new())),
             tls_acceptor: TlsAcceptor::from(Arc::new(tls_config)),
         })
@@ -53,11 +53,11 @@ impl Server {
     pub async fn start(&self, addr: &str) -> io::Result<()> {
         // bind listener, accept connections, spawn handler for each
         let listener = TcpListener::bind(addr).await?;
-        println!("Server listening on {}", addr);
+        println!("Server listening on {addr}");
 
         loop {
             let (stream, peer_addr) = listener.accept().await?;
-            println!("TCP connection from {}", peer_addr);
+            println!("TCP connection from {peer_addr}");
 
             let acceptor = self.tls_acceptor.clone();
             let server_clone = self.clone();
@@ -68,12 +68,12 @@ impl Server {
                 match acceptor.accept(stream).await {
                     Ok(tls_stream) => {
                         let client_id = extract_client_id(&tls_stream);
-                        println!("TLS established with {}", client_id);
+                        println!("TLS established with {client_id}");
                         server_clone.handle_client(tls_stream, client_id).await;
                     }
                     Err(e) => {
                         // handshake failure due to lack of cert or untrusted cert
-                        eprintln!("TLS handshake failed from {}: {}", peer_addr, e);
+                        eprintln!("TLS handshake failed from {peer_addr}: {e}");
                     }
                 }
             });
@@ -93,7 +93,7 @@ impl Server {
             let mut map = self.clients.lock().unwrap();
             if map.contains_key(&client_id) {
                 // duplicate identity - security threat!
-                eprintln!("Duplicate client_id '{}', rejecting", client_id);
+                eprintln!("Duplicate client_id '{client_id}', rejecting");
                 return;
             }
             map.insert(client_id.clone(), ClientEntry { sender: tx, x25519_key: None, mlkem_ek: None });
@@ -104,7 +104,7 @@ impl Server {
         let write_task = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 if let Err(e) = msg.write_framed(&mut writer).await {
-                    eprintln!("Write error: {}", e);
+                    eprintln!("Write error: {e}");
                     break;
                 }
             }
@@ -119,11 +119,11 @@ impl Server {
                     self.route(msg, &client_id).await;
                 }
                 Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                    println!("Client '{}' disconnected", client_id);
+                    println!("Client '{client_id}' disconnected");
                     break;
                 }
                 Err(e) => {
-                    eprintln!("Read error from {}: {}", client_id, e);
+                    eprintln!("Read error from {client_id}: {e}");
                     break;
                 }
             }
@@ -143,9 +143,8 @@ impl Server {
         match msg {
             // explicit deregister request from client
             Message::Deregister { client_id } => {
-                let mut map = self.clients.lock().unwrap();
-                map.remove(&client_id);
-                println!("'{}' explicitly deregistered", client_id);
+                self.clients.lock().unwrap().remove(&client_id);
+                println!("'{client_id}' explicitly deregistered");
             }
 
             // client wants to send msg to another client
@@ -164,13 +163,13 @@ impl Server {
                         // mpsc is async so send outside of lock
                         if tx.send(delivery).await.is_err() {
                             // receiver dropped
-                            eprintln!("Failed to deliver to '{}': channel closed", to);
-                            self.send_error(from_id, format!("'{}' is no longer connected", to))
+                            eprintln!("Failed to deliver to '{to}': channel closed");
+                            self.send_error(from_id, format!("'{to}' is no longer connected"))
                                 .await;
                         }
                     }
                     None => {
-                        self.send_error(from_id, format!("Unknown recipient '{}'", to))
+                        self.send_error(from_id, format!("Unknown recipient '{to}'"))
                             .await;
                     }
                 }
@@ -178,7 +177,7 @@ impl Server {
 
             // clients don't send recieve - protocol violation
             Message::Receive { .. } => {
-                eprintln!("Protocol violation: '{}' sent a Receive message", from_id);
+                eprintln!("Protocol violation: '{from_id}' sent a Receive message");
             }
 
             // client requests list of connected clients
@@ -193,13 +192,12 @@ impl Server {
             // clients dont send ClientsList - protocol violation
             Message::ClientsList(_) => {
                 eprintln!(
-                    "Protocol violation: '{}' send a ClientsList message",
-                    from_id
+                    "Protocol violation: '{from_id}' send a ClientsList message"
                 );
             }
 
             Message::Error(_) => {
-                eprintln!("'{}' sent an Error message (ignored)", from_id);
+                eprintln!("'{from_id}' sent an Error message (ignored)");
             }
 
             // store both halves of the client's hybrid E2E public key
@@ -208,7 +206,7 @@ impl Server {
                 if let Some(entry) = map.get_mut(from_id) {
                     entry.x25519_key = Some(x25519_key);
                     entry.mlkem_ek = Some(mlkem_ek);
-                    println!("Stored hybrid E2E public key for '{}'", from_id);
+                    println!("Stored hybrid E2E public key for '{from_id}'");
                 }
             }
 
@@ -231,7 +229,7 @@ impl Server {
                     None => {
                         self.send_error(
                             from_id,
-                            format!("No E2E key available for '{}'", client_id),
+                            format!("No E2E key available for '{client_id}'"),
                         )
                         .await;
                     }
@@ -240,7 +238,7 @@ impl Server {
 
             // clients don't send KeyResponse - protocol violation
             Message::KeyResponse { .. } => {
-                eprintln!("Protocol violation: '{}' sent a KeyResponse message", from_id);
+                eprintln!("Protocol violation: '{from_id}' sent a KeyResponse message");
             }
         }
     }
@@ -264,7 +262,7 @@ impl Server {
 
 impl Clone for Server {
     fn clone(&self) -> Self {
-        Server {
+        Self {
             clients: Arc::clone(&self.clients),
             tls_acceptor: self.tls_acceptor.clone(),
         }
@@ -273,7 +271,7 @@ impl Clone for Server {
 
 impl Clone for ClientEntry {
     fn clone(&self) -> Self {
-        ClientEntry {
+        Self {
             sender: self.sender.clone(),
             x25519_key: self.x25519_key,
             mlkem_ek: self.mlkem_ek.clone(),

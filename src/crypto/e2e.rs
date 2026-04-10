@@ -28,7 +28,7 @@ impl E2EKeys {
         // generate() returns (DecapsulationKey<P>, EncapsulationKey<P>)
         let (mlkem_dk, mlkem_ek) = MlKem768::generate(&mut OsRng);
         let mlkem_ek_bytes = mlkem_ek.as_bytes().as_slice().to_vec();
-        E2EKeys { x25519_secret, x25519_public, mlkem_dk, mlkem_ek_bytes }
+        Self { x25519_secret, x25519_public, mlkem_dk, mlkem_ek_bytes }
     }
 
     fn x25519_shared(&self, their_public: &[u8; 32]) -> [u8; 32] {
