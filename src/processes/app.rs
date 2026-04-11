@@ -19,6 +19,7 @@ use ratatui::{
 use tokio::io::{AsyncWrite, BufReader};
 
 use crate::crypto::e2e::E2EKeys;
+use crate::crypto::peer_auth::verify_peer_e2e_keys;
 use crate::protocol::message::Message;
 
 struct TerminalGuard;
@@ -60,10 +61,12 @@ struct AppState {
     error_popup: Option<String>,
     inbound_seq: HashMap<String, u64>,
     outbound_seq: HashMap<String, u64>,
+    /// DER-encoded CA certificate used to verify peer key bundles.
+    ca_cert_der: Vec<u8>,
 }
 
 impl AppState {
-    fn new(e2e: E2EKeys) -> Self {
+    fn new(e2e: E2EKeys, ca_cert_der: Vec<u8>) -> Self {
         Self {
             messages: vec![
                 ChatEntry::System("Commands: :l list online, :s <to> <msg> send, :q quit".into()),
@@ -78,6 +81,7 @@ impl AppState {
             error_popup: None,
             inbound_seq: HashMap::new(),
             outbound_seq: HashMap::new(),
+            ca_cert_der,
         }
     }
 
@@ -105,6 +109,7 @@ pub async fn run_tui<R, W>(
     reader: &mut BufReader<R>,
     writer: &mut W,
     e2e: E2EKeys,
+    ca_cert_der: Vec<u8>,
 ) -> io::Result<()>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -115,7 +120,7 @@ where
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    let mut state = AppState::new(e2e);
+    let mut state = AppState::new(e2e, ca_cert_der);
     let mut term_events = EventStream::new();
 
     // main loop
@@ -279,10 +284,30 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
             }
         }
 
-        Message::KeyResponse { client_id, x25519_key, mlkem_ek } => {
+        Message::KeyResponse { client_id, x25519_key, mlkem_ek, cert, sig } => {
+            // Verify key bundle before trusting it
+            // This catches a MITM server that substitutes its own E2E keys
+            // cert must be CA-signed, its CN must match client_id, and
+            // signature must be over the exact keys that were received
+            if let Err(e) = verify_peer_e2e_keys(
+                &state.ca_cert_der,
+                &cert,
+                &client_id,
+                &x25519_key,
+                &mlkem_ek,
+                &sig,
+            ) {
+                state.push_error(format!("MITM protection: key verification failed for '{client_id}': {e}"));
+                // Drop any pending messages to peer — cannot trust the keys
+                state.pending_outbound.remove(&client_id);
+                state.pending_inbound.remove(&client_id);
+                return Ok(());
+            }
+
+            state.push_system(format!("Verified identity of '{client_id}'"));
             state.peer_keys.insert(client_id.clone(), (x25519_key, mlkem_ek.clone()));
 
-            // encrypt with hybrid scheme.
+            // encrypt with hybrid scheme
             if let Some(msgs) = state.pending_outbound.remove(&client_id) {
                 for plaintext in msgs {
                     let seq = state.outbound_seq.entry(client_id.to_string()).or_insert(0);
@@ -299,7 +324,7 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
                 }
             }
 
-            // Decrypt inbound messages with the sender's X25519 key.
+            // Decrypt inbound messages with the sender's X25519 key
             if let Some(cts) = state.pending_inbound.remove(&client_id) {
                 for ct in cts {
                     match state.e2e.decrypt(&x25519_key, &ct) {

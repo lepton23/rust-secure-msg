@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
 
+use base64::{engine::general_purpose, Engine as _};
+
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -30,6 +32,10 @@ struct ClientEntry {
     sender: mpsc::Sender<Message>,
     x25519_key: Option<[u8; 32]>,
     mlkem_ek: Option<Vec<u8>>,
+    /// DER-encoded TLS cert, forwarded to peers as part of key verification.
+    cert: Option<Vec<u8>>,
+    /// Signature over x25519_key || mlkem_ek, forwarded to peers unchanged.
+    sig: Option<Vec<u8>>,
 }
 
 pub struct Server {
@@ -96,7 +102,7 @@ impl Server {
                 eprintln!("Duplicate client_id '{client_id}', rejecting");
                 return;
             }
-            map.insert(client_id.clone(), ClientEntry { sender: tx, x25519_key: None, mlkem_ek: None });
+            map.insert(client_id.clone(), ClientEntry { sender: tx, x25519_key: None, mlkem_ek: None, cert: None, sig: None });
             println!("Registered '{}'. Online: {}", client_id, map.len());
         }
 
@@ -154,10 +160,8 @@ impl Server {
                     map.get(&to).map(|e| e.sender.clone())
                 };
 
-                print!("'{}' sending encrypted message: ", from_id.to_string());
-                for b in &content {
-                    print!("{b:02x}");
-                }
+                print!("'{}' sending encrypted message to '{}': ", from_id.to_string(), to.to_string());
+                print!("{}", general_purpose::STANDARD.encode(&content));
                 println!();
 
                 match sender_opt {
@@ -188,6 +192,7 @@ impl Server {
 
             // client requests list of connected clients
             Message::List => {
+                println!("Sending clients list to '{from_id}'");
                 let list = {
                     let map = self.clients.lock().unwrap();
                     map.keys().cloned().collect::<Vec<_>>()
@@ -206,29 +211,34 @@ impl Server {
                 eprintln!("'{from_id}' sent an Error message (ignored)");
             }
 
-            // store both halves of the client's hybrid E2E public key
-            Message::AnnounceKey { x25519_key, mlkem_ek } => {
+            // store both halves of the client's hybrid E2E public key plus the
+            // cert/signature bundle used for peer-to-peer identity verification
+            Message::AnnounceKey { x25519_key, mlkem_ek, cert, sig } => {
                 let mut map = self.clients.lock().unwrap();
                 if let Some(entry) = map.get_mut(from_id) {
                     entry.x25519_key = Some(x25519_key);
                     entry.mlkem_ek = Some(mlkem_ek);
-                    println!("Stored hybrid E2E public key for '{from_id}'");
+                    entry.cert = Some(cert);
+                    entry.sig = Some(sig);
+                    println!("Stored hybrid E2E public key, certificate, and signature for '{from_id}'");
                 }
             }
 
-            // look up a peer's hybrid public key and return it to the requester
+            // look up peer's hybrid public key and return to requester
+            // cert and sig are forwarded opaquely so target client can verify the
+            // key bundle was not tampered with by server
             Message::RequestKey { client_id } => {
                 let key_opt = {
                     let map = self.clients.lock().unwrap();
                     map.get(&client_id).and_then(|e| {
-                        Some((e.x25519_key?, e.mlkem_ek.clone()?))
+                        Some((e.x25519_key?, e.mlkem_ek.clone()?, e.cert.clone()?, e.sig.clone()?))
                     })
                 };
                 match key_opt {
-                    Some((x25519_key, mlkem_ek)) => {
+                    Some((x25519_key, mlkem_ek, cert, sig)) => {
                         self.send_to(
                             from_id,
-                            Message::KeyResponse { client_id, x25519_key, mlkem_ek },
+                            Message::KeyResponse { client_id, x25519_key, mlkem_ek, cert, sig },
                         )
                         .await;
                     }
@@ -281,6 +291,8 @@ impl Clone for ClientEntry {
             sender: self.sender.clone(),
             x25519_key: self.x25519_key,
             mlkem_ek: self.mlkem_ek.clone(),
+            cert: self.cert.clone(),
+            sig: self.sig.clone(),
         }
     }
 }

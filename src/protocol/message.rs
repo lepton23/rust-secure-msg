@@ -18,6 +18,12 @@ pub enum Message {
         x25519_key: [u8; 32],
         /// ML-KEM-768 encapsulation key (1184 bytes).
         mlkem_ek: Vec<u8>,
+        /// DER-encoded TLS certificate of the announcing client.
+        cert: Vec<u8>,
+        /// ECDSA-P256 signature over `x25519_key || mlkem_ek` made with the
+        /// client's TLS private key, allowing peers to verify this key bundle
+        /// was not substituted by an intermediate node.
+        sig: Vec<u8>,
     },
     /// Ask the server for another client's hybrid E2E public key.
     RequestKey { client_id: String },
@@ -27,6 +33,10 @@ pub enum Message {
         x25519_key: [u8; 32],
         /// ML-KEM-768 encapsulation key (1184 bytes).
         mlkem_ek: Vec<u8>,
+        /// DER-encoded TLS certificate of the key's owner.
+        cert: Vec<u8>,
+        /// ECDSA-P256 signature over `x25519_key || mlkem_ek`.
+        sig: Vec<u8>,
     },
 }
 

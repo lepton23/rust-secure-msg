@@ -30,7 +30,7 @@ async fn main() {
                 let _ = generate_certs("certs", &name, &[]);
             }
             let key_path = format!("certs/client-{name}-key.pem");
-            let server_hostname = get_input("Enter server hostname (e.g. myserver.local):");
+            let server_hostname = get_input("Enter server hostname (e.g. pc2-111-l / lyrane / palain):");
             let port_str = get_input("Enter server port (e.g. 8080):");
             let port: u16 = port_str.parse().unwrap_or(8080);
             let server_addr = format!("{server_hostname}:{port}");
