@@ -26,7 +26,7 @@ Messaging UI operation:
 - Type ":s <Name of Target> <Message>" to send a message to a target client (e.g. ":s Bob Hello There!" to send Bob a "Hello There!" message).
 - Type ":q" or press Ctrl-C to quit the client and deregister from the server.
 
-In order to see communication between multiple clients, initialise a server, and connect two client instances to the server. \\
-Enter ":l" on a client to verify the server is aware of both clients, and send a message with the ":s" command to message the other client. \\
-This can be performed between different lab machines, or locally in separate shells. \\
+In order to see communication between multiple clients, initialise a server, and connect two client instances to the server. \
+Enter ":l" on a client to verify the server is aware of both clients, and send a message with the ":s" command to message the other client. \
+This can be performed between different lab machines, or locally in separate shells. \
 Any errors (e.g. sending a message to a non-existant client) will result in an error popup which can be dismissed by pressing ESC.
