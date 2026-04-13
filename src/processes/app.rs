@@ -63,6 +63,10 @@ struct AppState {
     outbound_seq: HashMap<String, u64>,
     /// DER-encoded CA certificate used to verify peer key bundles.
     ca_cert_der: Vec<u8>,
+    /// Ratchet chain keys for outgoing messages, per recipient.
+    send_chains: HashMap<String, [u8; 32]>,
+    /// Ratchet chain keys for incoming messages, per sender.
+    recv_chains: HashMap<String, [u8; 32]>,
 }
 
 impl AppState {
@@ -82,6 +86,8 @@ impl AppState {
             inbound_seq: HashMap::new(),
             outbound_seq: HashMap::new(),
             ca_cert_der,
+            send_chains: HashMap::new(),
+            recv_chains: HashMap::new(),
         }
     }
 
@@ -205,12 +211,14 @@ async fn handle_key<W: AsyncWrite + Unpin>(
                     // Clone key data before any mutable state access.
                     let key_data = state.peer_keys.get(to).map(|(k, e)| (*k, e.clone()));
                     if let Some((x25519_key, mlkem_ek)) = key_data {
-                        // Both keys cached — encrypt with hybrid scheme and send.
+                        // Both keys cached — encrypt with ratcheted hybrid scheme and send.
                         // add seq to aead plaintext to defend against replay attacks
                         let seq = state.outbound_seq.entry(to.to_string()).or_insert(0);
                         *seq += 1;
                         let plaintext_with_seq = format!("{:016x}:{content}", seq);
-                        let ct = state.e2e.encrypt(&x25519_key, &mlkem_ek, &plaintext_with_seq);
+                        let chain_key = state.send_chains.get(to).copied();
+                        let (ct, next_chain) = state.e2e.encrypt(&x25519_key, &mlkem_ek, &plaintext_with_seq, chain_key);
+                        state.send_chains.insert(to.to_string(), next_chain);
                         state.push_sent(to.to_string(), content.to_string());
                         Message::Send {
                             to: to.to_string(),
@@ -254,8 +262,10 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
             // Only sender's X25519 key needed for decryption
             let x25519_key = state.peer_keys.get(&from).map(|(k, _)| *k);
             if let Some(x25519_key) = x25519_key {
-                match state.e2e.decrypt(&x25519_key, &content) {
-                    Some(plain) => {
+                let chain_key = state.recv_chains.get(&from).copied();
+                match state.e2e.decrypt(&x25519_key, &content, chain_key) {
+                    Some((plain, next_chain)) => {
+                        state.recv_chains.insert(from.clone(), next_chain);
                         // replay attack protection
                         if let Some((seq_str, msg)) = plain.split_once(":") {
                             if let Ok(seq) = u64::from_str_radix(seq_str, 16) {
@@ -307,13 +317,15 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
             state.push_system(format!("Verified identity of '{client_id}'"));
             state.peer_keys.insert(client_id.clone(), (x25519_key, mlkem_ek.clone()));
 
-            // encrypt with hybrid scheme
+            // encrypt pending messages with the ratcheted hybrid scheme
             if let Some(msgs) = state.pending_outbound.remove(&client_id) {
                 for plaintext in msgs {
                     let seq = state.outbound_seq.entry(client_id.to_string()).or_insert(0);
                     *seq += 1;
                     let plaintext_with_seq = format!("{:016x}:{plaintext}", seq);
-                    let ct = state.e2e.encrypt(&x25519_key, &mlkem_ek, &plaintext_with_seq);
+                    let chain_key = state.send_chains.get(&client_id).copied();
+                    let (ct, next_chain) = state.e2e.encrypt(&x25519_key, &mlkem_ek, &plaintext_with_seq, chain_key);
+                    state.send_chains.insert(client_id.clone(), next_chain);
                     state.push_sent(client_id.clone(), plaintext);
                     Message::Send {
                         to: client_id.clone(),
@@ -324,11 +336,13 @@ async fn handle_incoming<W: AsyncWrite + Unpin>(
                 }
             }
 
-            // Decrypt inbound messages with the sender's X25519 key
+            // Decrypt buffered inbound messages, advancing the recv ratchet
             if let Some(cts) = state.pending_inbound.remove(&client_id) {
                 for ct in cts {
-                    match state.e2e.decrypt(&x25519_key, &ct) {
-                        Some(plain) => {
+                    let chain_key = state.recv_chains.get(&client_id).copied();
+                    match state.e2e.decrypt(&x25519_key, &ct, chain_key) {
+                        Some((plain, next_chain)) => {
+                            state.recv_chains.insert(client_id.clone(), next_chain);
                             // replay attack protection
                             if let Some((seq_str, msg)) = plain.split_once(":") {
                                 if let Ok(seq) = u64::from_str_radix(seq_str, 16) {
