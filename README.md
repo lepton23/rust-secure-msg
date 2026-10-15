@@ -1,4 +1,6 @@
-# P2-Message Usage Guide - Student ID: 220007952
+# Rust secure private messaging client & server
+
+### Developed for uni project
 
 Navigate to root directory, i.e. Containing src/, target/, Cargo.lock, Cargo.toml, README.md
 
